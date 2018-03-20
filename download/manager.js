@@ -130,14 +130,12 @@ class Manager extends EventEmitter{
     this.lockNumber = 0 // 等待更新数量
     this.lock = false // 存储任务锁
     this.errors = [] // 错误列表
-    
   }
 
   // 初始化
   init() {
     // 检查transmission-daemon 
     try {
-      throw new Error('test error')
       let command = 'systemctl'
       let serviceName = 'transmission-daemon'
       spawnSync(command, ['enable', serviceName])
@@ -185,9 +183,14 @@ class Manager extends EventEmitter{
   syncList() {
     setInterval(() => {
       this.client.get((err, arg) => {
-
+        let tasks = arg.torrents
+        this.downloading.forEach((item) => {
+          let result = tasks.find(task => task.id == item.id)
+          if (result) item.set(result)
+          else {}
+        })
       })
-    })
+    },1000)
   }
 
   /* task object
@@ -203,8 +206,11 @@ class Manager extends EventEmitter{
       let result, options = { "download-dir": this.tempPath }
       if (type === 'magnet') result = await this.client.addUrlAsync(magnetUrl, options)
       else result = await this.client.addFileAsync(torrentPath, options)
+      // 检查当前用户是否已创建过相同任务
+      let result = this.downloading.find(item => item.id == result.id && item.userUUID == userUUID)
+      if (result) return
       // 创建本地任务
-      this.taskFactory(result.id, dirUUID, userUUID)
+      else await this.taskFactory(result.id, dirUUID, userUUID)
     } catch (e) {
       let errMessage = e.message
     }
@@ -260,6 +266,29 @@ class Manager extends EventEmitter{
     }
   }
 
+  op(id, op, callback) {
+    let ops = ['pause', 'resume', 'destroy']
+    if(!ops.includes(op)) callback(new Error('unknow error'))
+    switch(op) {
+      case 'pause':
+        this.client.stop(id, (err, data) => {
+          if (err) callback(err)
+          else callback(null, data)
+        })
+        break
+      case 'resume':
+        this.client.start(id, (err, data) => {
+          if (err) callback(err)
+          else callback(null, data)
+        })
+        break
+      case 'destroy':
+        break
+      default:
+        
+    }
+  }
+
   // 暂停任务
   pause(id, callback) {
     this.client.stop(id, callback)
@@ -289,11 +318,12 @@ class Task {
     this.eta = Infinity // 剩余时间
     this.status = null // 当前状态
     this.finishTime = null // 任务完成时间
+    
   }
 
   set(task) {
-    let { rateDownload, rateUpload, percentDone, eta, status } = task
-    let nextState = { rateDownload, rateUpload, percentDone, eta, status }
+    let { name, rateDownload, rateUpload, percentDone, eta, status } = task
+    let nextState = { name, rateDownload, rateUpload, percentDone, eta, status }
     Object.assign(this, nextState)
   }
 

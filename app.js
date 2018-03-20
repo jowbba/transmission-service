@@ -1,6 +1,9 @@
 const express = require('express')
+const bodyParser = require('body-parser')
 var app = express()
 
+app.use(bodyParser.json())
+app.use(bodyParser.urlencoded({ extended: false }))
 app.use('/download', require('./download'))
 app.get('/', (req, res) => {
     res.status(200).end()
